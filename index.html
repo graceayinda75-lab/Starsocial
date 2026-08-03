@@ -1,0 +1,86 @@
+<script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+
+<div class="post">
+  <input type="file" id="mediaUpload" accept="video/*,image/*" style="display:none" onchange="uploadMedia(event)">
+  <button class="btn" onclick="mediaUpload.click()">🎥 Publier</button>
+  <div id="progressBar" style="display:none;width:100%;background:#333;border-radius:10px;margin-top:10px">
+    <div id="progress" style="width:0%;height:10px;background:#0095f6;border-radius:10px"></div>
+  </div>
+</div>
+
+<script>
+const CLOUD_NAME = "xpedxvro";
+const UPLOAD_PRESET = "Starsocial";
+
+// ===== 1. COMPRESSER AVANT UPLOAD =====
+async function compressFile(file){
+  if(file.type.startsWith('image/')){
+    const options = {
+      maxSizeMB: 1, // max 1Mo
+      maxWidthOrHeight: 1080,
+      useWebWorker: true
+    }
+    return await imageCompression(file, options);
+  }
+
+  if(file.type.startsWith('video/')){
+    alert("Compression vidéo: ça peut prendre 10s");
+    // Pour vidéo on laisse Cloudinary compresser. Si tu veux je te fais avec ffmpeg.wasm
+    return file;
+  }
+  return file;
+}
+
+// ===== 2. UPLOAD AVEC PROGRESSION =====
+async function uploadMedia(e){
+  let file = e.target.files[0];
+  if(!file) return;
+
+  progressBar.style.display='block';
+  let compressedFile = await compressFile(file);
+
+  let formData = new FormData();
+  formData.append('file', compressedFile);
+  formData.append('upload_preset', UPLOAD_PRESET);
+  formData.append('folder', 'Starsocial');
+
+  let xhr = new XMLHttpRequest();
+  xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, true);
+
+  xhr.upload.onprogress = (e) => {
+    if(e.lengthComputable){
+      progress.style.width = (e.loaded / e.total) * 100 + '%';
+    }
+  };
+
+  xhr.onload = () => {
+    if(xhr.status === 200){
+      let data = JSON.parse(xhr.responseText);
+      db.collection('posts').add({
+        type: data.resource_type === 'video'? 'reel' : 'post',
+        mediaUrl: data.secure_url,
+        publicId: data.public_id, // IMPORTANT POUR SUPPRIMER
+        userId: currentUser.uid,
+        name: currentUser.displayName,
+        likes: [],
+        time: Date.now()
+      });
+      alert("✅ Publié!");
+      progressBar.style.display='none';
+    }
+  };
+  xhr.send(formData);
+}
+
+// ===== 3. SUPPRIMER UN POST =====
+async function deletePost(postId, publicId){
+  if(!confirm("Supprimer ce post?")) return;
+
+  // 1. Supprimer de Firebase
+  await db.collection('posts').doc(postId).delete();
+
+  // 2. Supprimer de Cloudinary via Cloud Function ou API côté serveur
+  // Pour l'instant on supprime juste de Firebase. Pour Cloudinary il faut le API Secret côté serveur
+  alert("Post supprimé du fil. Contacte moi pour suppression auto Cloudinary");
+}
+</script>
